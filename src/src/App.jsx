@@ -102,7 +102,7 @@ const Shape = ({ type, size, color, unknown, displaySize = 1 }) => {
 
 const Balancerio = () => {
   const [currentLevel, setCurrentLevel] = useState(0);
-  const [cells, setCells] = useState({});
+  const [cells, setCells] = useState(null);
   const [solved, setSolved] = useState(false);
   const [showHint, setShowHint] = useState(false);
   const [celebrateAnim, setCelebrateAnim] = useState(false);
@@ -111,13 +111,12 @@ const Balancerio = () => {
   const [touchDragItem, setTouchDragItem] = useState(null);
   const [touchPos, setTouchPos] = useState({ x: 0, y: 0 });
   const cellRefs = useRef({});
-  const beamRef = useRef(null);
 
   const level = LEVELS[currentLevel];
 
   const initLevel = useCallback(() => {
     const newCells = {};
-    level.staticObjects.forEach(obj => {
+    LEVELS[currentLevel].staticObjects.forEach(obj => {
       newCells[obj.position] = [{ ...obj, isStatic: true }];
     });
     setCells(newCells);
@@ -132,6 +131,7 @@ const Balancerio = () => {
   useEffect(() => { initLevel(); }, [initLevel]);
 
   const calculateMoment = useCallback((cellData) => {
+    if (!cellData) return { leftMoment: 0, rightMoment: 0, difference: 0, hasUserPieces: false };
     let leftMoment = 0;
     let rightMoment = 0;
     let hasUserPieces = false;
@@ -149,28 +149,29 @@ const Balancerio = () => {
   }, []);
 
   useEffect(() => {
+    if (!cells) return;
     const { difference, hasUserPieces } = calculateMoment(cells);
     if (hasUserPieces && Math.abs(difference) < 0.01 && !solved) {
       setSolved(true);
       setCelebrateAnim(true);
-      setTimeout(() => setCelebrateAnim(false), 2000);
+      const timer = setTimeout(() => setCelebrateAnim(false), 2000);
+      return () => clearTimeout(timer);
     }
   }, [cells, calculateMoment, solved]);
 
-  const getRotation = useCallback(() => {
+  const getRotation = () => {
     const { difference } = calculateMoment(cells);
     const maxRot = 12;
-    const clamped = Math.max(-maxRot, Math.min(maxRot, difference * 1.5));
-    return clamped;
-  }, [cells, calculateMoment]);
+    return Math.max(-maxRot, Math.min(maxRot, difference * 1.5));
+  };
 
-  const getBalanceState = useCallback(() => {
+  const getBalanceState = () => {
     const { difference } = calculateMoment(cells);
     const abs = Math.abs(difference);
     if (abs < 0.01) return 'balanced';
     if (abs < 2) return 'close';
     return 'far';
-  }, [cells, calculateMoment]);
+  };
 
   const addToCell = useCallback((position, item) => {
     if (!level.availableCells.includes(position)) return;
@@ -181,6 +182,7 @@ const Balancerio = () => {
     if (invItem && used >= invItem.count) return;
 
     setCells(prev => {
+      if (!prev) return prev;
       const newCells = { ...prev };
       if (!newCells[position]) newCells[position] = [];
       newCells[position] = [...newCells[position], { ...item, isStatic: false }];
@@ -191,6 +193,7 @@ const Balancerio = () => {
 
   const removeFromCell = useCallback((position, index) => {
     setCells(prev => {
+      if (!prev) return prev;
       const arr = prev[position];
       if (!arr || !arr[index] || arr[index].isStatic) return prev;
       const removed = arr[index];
@@ -204,7 +207,6 @@ const Balancerio = () => {
     });
   }, []);
 
-  // Mouse drag
   const handleDragStart = (e, item) => {
     setDraggedItem(item);
     e.dataTransfer.effectAllowed = 'move';
@@ -218,7 +220,6 @@ const Balancerio = () => {
     }
   };
 
-  // Touch drag
   const handleTouchStart = (e, item) => {
     const touch = e.touches[0];
     setTouchDragItem(item);
@@ -227,13 +228,13 @@ const Balancerio = () => {
 
   const handleTouchMove = (e) => {
     if (!touchDragItem) return;
+    e.preventDefault();
     const touch = e.touches[0];
     setTouchPos({ x: touch.clientX, y: touch.clientY });
   };
 
   const handleTouchEnd = () => {
     if (!touchDragItem) return;
-    // Find which cell the touch ended on
     for (const [posStr, ref] of Object.entries(cellRefs.current)) {
       if (!ref) continue;
       const rect = ref.getBoundingClientRect();
@@ -254,10 +255,12 @@ const Balancerio = () => {
 
   const resetLevel = () => initLevel();
 
+  // Don't render until cells are initialized
+  if (cells === null) return null;
+
   const rotation = getRotation();
   const balanceState = getBalanceState();
   const { leftMoment, rightMoment } = calculateMoment(cells);
-
   const balanceColor = balanceState === 'balanced' ? '#4ADE80' : balanceState === 'close' ? '#FBBF24' : '#F87171';
 
   return (
@@ -265,26 +268,25 @@ const Balancerio = () => {
       style={{
         width: '100%',
         minHeight: '100vh',
-        background: 'linear-gradient(180deg, #0F1923 0%, #1A2736 50%, #0F1923 100%)',
+        background: '#0F1923',
         color: '#E2E8F0',
         fontFamily: "'Segoe UI', system-ui, sans-serif",
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         padding: '20px 16px',
-        overflow: 'hidden',
         position: 'relative',
         userSelect: 'none',
+        margin: 0,
       }}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
-      {/* Subtle grid background */}
+      {/* Subtle grid bg */}
       <div style={{
-        position: 'absolute', inset: 0, opacity: 0.03,
+        position: 'absolute', inset: 0, opacity: 0.03, pointerEvents: 'none',
         backgroundImage: 'linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)',
         backgroundSize: '40px 40px',
-        pointerEvents: 'none',
       }} />
 
       {/* Header */}
@@ -310,7 +312,7 @@ const Balancerio = () => {
         ))}
       </div>
 
-      {/* Balance indicator bar */}
+      {/* Balance indicator */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16,
         padding: '8px 20px', borderRadius: 20,
@@ -332,11 +334,11 @@ const Balancerio = () => {
       </div>
 
       {/* Lever area */}
-      <div ref={beamRef} style={{
+      <div style={{
         position: 'relative', width: '100%', maxWidth: 700,
-        height: 260, marginBottom: 16, flexShrink: 0,
+        height: 240, marginBottom: 20, flexShrink: 0,
       }}>
-        {/* Fulcrum */}
+        {/* Fulcrum triangle */}
         <div style={{
           position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)',
           width: 0, height: 0,
@@ -352,13 +354,12 @@ const Balancerio = () => {
         <div style={{
           position: 'absolute', bottom: 38, left: '5%', right: '5%',
           height: 8, borderRadius: 4,
-          background: `linear-gradient(90deg, #3B5068, #4A6380, #3B5068)`,
+          background: 'linear-gradient(90deg, #3B5068, #4A6380, #3B5068)',
           transformOrigin: 'center center',
           transform: `rotate(${rotation}deg)`,
           transition: 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
           boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
         }}>
-          {/* Cell positions */}
           {[-3, -2, -1, 0, 1, 2, 3].map(pos => {
             const pct = ((pos + 3) / 6) * 100;
             const isCenter = pos === 0;
@@ -380,38 +381,33 @@ const Balancerio = () => {
             return (
               <div
                 key={pos}
-                ref={el => cellRefs.current[pos] = el}
+                ref={el => { cellRefs.current[pos] = el; }}
+                onDragOver={e => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; }}
+                onDrop={e => handleDrop(e, pos)}
                 style={{
                   position: 'absolute',
                   left: `${pct}%`,
-                  top: -72,
+                  top: -80,
                   transform: 'translateX(-50%)',
                   display: 'flex', flexDirection: 'column', alignItems: 'center',
                 }}
               >
                 {/* Distance label */}
-                <div style={{
-                  fontSize: 9, color: '#5B7A94', marginBottom: 2,
-                  fontWeight: 600, letterSpacing: 1,
-                }}>
+                <div style={{ fontSize: 9, color: '#5B7A94', marginBottom: 2, fontWeight: 600 }}>
                   {Math.abs(pos)}
                 </div>
 
-                {/* Cell drop zone */}
+                {/* Drop zone */}
                 <div
-                  onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
-                  onDrop={e => handleDrop(e, pos)}
                   style={{
                     width: 56, height: 60, borderRadius: 8,
                     border: `2px ${isAvailable ? 'dashed' : 'solid'} ${isAvailable ? 'rgba(91,141,239,0.3)' : 'rgba(255,255,255,0.05)'}`,
                     background: isAvailable ? 'rgba(91,141,239,0.06)' : 'rgba(0,0,0,0.2)',
                     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end',
                     position: 'relative', padding: '2px 0',
-                    transition: 'border-color 0.2s, background 0.2s',
                     cursor: isAvailable ? 'default' : 'not-allowed',
                   }}
                 >
-                  {/* Objects stacked */}
                   {cellObjects.map((obj, i) => (
                     <div
                       key={i}
@@ -419,7 +415,6 @@ const Balancerio = () => {
                       style={{
                         cursor: obj.isStatic ? 'default' : 'pointer',
                         opacity: obj.isStatic ? 1 : 0.9,
-                        transition: 'transform 0.15s',
                         lineHeight: 0,
                       }}
                       title={obj.isStatic ? '' : 'Нажми, чтобы убрать'}
@@ -428,11 +423,10 @@ const Balancerio = () => {
                     </div>
                   ))}
 
-                  {/* Weight label */}
                   {totalWeight > 0 && (
                     <div style={{
                       position: 'absolute', top: -14, fontSize: 10,
-                      color: '#5B8DEF', fontWeight: 700,
+                      color: '#5B8DEF', fontWeight: 700, whiteSpace: 'nowrap',
                     }}>
                       {totalWeight}×{Math.abs(pos)}={totalWeight * Math.abs(pos)}
                     </div>
@@ -449,31 +443,23 @@ const Balancerio = () => {
         background: 'rgba(255,255,255,0.03)',
         border: '1px solid rgba(255,255,255,0.06)',
         borderRadius: 16, padding: '16px 20px',
-        width: '100%', maxWidth: 500,
+        width: '100%', maxWidth: 500, position: 'relative', zIndex: 1,
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <span style={{ fontSize: 10, letterSpacing: 2, color: '#5B7A94', textTransform: 'uppercase' }}>
-            Фигуры
-          </span>
+          <span style={{ fontSize: 10, letterSpacing: 2, color: '#5B7A94', textTransform: 'uppercase' }}>Фигуры</span>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={() => setShowHint(!showHint)}
-              style={{
-                fontSize: 11, color: '#5B8DEF', background: 'rgba(91,141,239,0.1)',
-                border: '1px solid rgba(91,141,239,0.2)', borderRadius: 8,
-                padding: '4px 10px', cursor: 'pointer',
-              }}
-            >
+            <button onClick={() => setShowHint(!showHint)} style={{
+              fontSize: 11, color: '#5B8DEF', background: 'rgba(91,141,239,0.1)',
+              border: '1px solid rgba(91,141,239,0.2)', borderRadius: 8,
+              padding: '4px 10px', cursor: 'pointer',
+            }}>
               💡 Подсказка
             </button>
-            <button
-              onClick={resetLevel}
-              style={{
-                fontSize: 11, color: '#F87171', background: 'rgba(248,113,113,0.1)',
-                border: '1px solid rgba(248,113,113,0.2)', borderRadius: 8,
-                padding: '4px 10px', cursor: 'pointer',
-              }}
-            >
+            <button onClick={resetLevel} style={{
+              fontSize: 11, color: '#F87171', background: 'rgba(248,113,113,0.1)',
+              border: '1px solid rgba(248,113,113,0.2)', borderRadius: 8,
+              padding: '4px 10px', cursor: 'pointer',
+            }}>
               ↺ Сброс
             </button>
           </div>
@@ -513,12 +499,8 @@ const Balancerio = () => {
                 }}
               >
                 <Shape type={item.type} size={item.size} color={item.color} displaySize={1} />
-                <div style={{ fontSize: 11, color: '#5B8DEF', fontWeight: 600 }}>
-                  вес: {item.weight}
-                </div>
-                <div style={{ fontSize: 10, color: '#5B7A94' }}>
-                  ×{remaining}
-                </div>
+                <div style={{ fontSize: 11, color: '#5B8DEF', fontWeight: 600 }}>вес: {item.weight}</div>
+                <div style={{ fontSize: 10, color: '#5B7A94' }}>×{remaining}</div>
               </div>
             );
           })}
@@ -528,8 +510,7 @@ const Balancerio = () => {
       {/* Touch drag ghost */}
       {touchDragItem && (
         <div style={{
-          position: 'fixed',
-          left: touchPos.x - 20, top: touchPos.y - 20,
+          position: 'fixed', left: touchPos.x - 20, top: touchPos.y - 20,
           pointerEvents: 'none', zIndex: 1000, opacity: 0.8,
         }}>
           <Shape type={touchDragItem.type} size={touchDragItem.size} color={touchDragItem.color} displaySize={1.2} />
@@ -540,15 +521,11 @@ const Balancerio = () => {
       {solved && (
         <div style={{
           position: 'fixed', inset: 0,
-          background: celebrateAnim ? 'rgba(15,25,35,0.85)' : 'rgba(15,25,35,0.7)',
+          background: 'rgba(15,25,35,0.9)',
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
           zIndex: 100,
-          animation: 'fadeIn 0.4s ease',
         }}>
-          <div style={{
-            fontSize: 48, marginBottom: 12,
-            animation: celebrateAnim ? 'bounce 0.6s ease' : 'none',
-          }}>⚖️</div>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>⚖️</div>
           <div style={{
             fontSize: 28, fontWeight: 700, color: '#4ADE80', marginBottom: 8,
             textShadow: '0 0 20px rgba(74,222,128,0.4)',
@@ -559,16 +536,12 @@ const Balancerio = () => {
             {leftMoment} = {rightMoment}
           </div>
           {currentLevel < LEVELS.length - 1 ? (
-            <button
-              onClick={nextLevel}
-              style={{
-                padding: '12px 32px', borderRadius: 12,
-                background: 'linear-gradient(135deg, #5B8DEF, #4A6FD4)',
-                border: 'none', color: '#fff', fontSize: 16, fontWeight: 600,
-                cursor: 'pointer',
-                boxShadow: '0 4px 20px rgba(91,141,239,0.4)',
-              }}
-            >
+            <button onClick={nextLevel} style={{
+              padding: '12px 32px', borderRadius: 12,
+              background: 'linear-gradient(135deg, #5B8DEF, #4A6FD4)',
+              border: 'none', color: '#fff', fontSize: 16, fontWeight: 600,
+              cursor: 'pointer', boxShadow: '0 4px 20px rgba(91,141,239,0.4)',
+            }}>
               Следующий уровень →
             </button>
           ) : (
@@ -576,14 +549,11 @@ const Balancerio = () => {
               <div style={{ fontSize: 20, color: '#4ADE80', marginBottom: 8 }}>
                 🎉 Все уровни пройдены!
               </div>
-              <button
-                onClick={() => { setCurrentLevel(0); }}
-                style={{
-                  padding: '10px 24px', borderRadius: 12,
-                  background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
-                  color: '#E2E8F0', fontSize: 14, cursor: 'pointer',
-                }}
-              >
+              <button onClick={() => setCurrentLevel(0)} style={{
+                padding: '10px 24px', borderRadius: 12,
+                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                color: '#E2E8F0', fontSize: 14, cursor: 'pointer',
+              }}>
                 Играть снова
               </button>
             </div>
@@ -592,9 +562,8 @@ const Balancerio = () => {
       )}
 
       <style>{`
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes bounce { 0%,100% { transform: scale(1); } 50% { transform: scale(1.3); } }
-        * { box-sizing: border-box; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body, #root { margin: 0; padding: 0; background: #0F1923; min-height: 100vh; }
       `}</style>
     </div>
   );
